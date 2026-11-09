@@ -276,7 +276,9 @@ def restoreJson():
         None, 'Load parameters from JSON', '', 'JSON files (*.json)'
     )
     if path:
-        parameter_restore_from_json_file(p, path)
+        add = p["Save/Restore functionality", "Restore State", "Add missing items"]
+        rem = p["Save/Restore functionality", "Restore State", "Remove extra items"]
+        parameter_restore_from_json_file(p, path, addChildren=add, removeChildren=rem)
 
 p.param('Save/Restore functionality', 'Save State').sigActivated.connect(save)
 p.param('Save/Restore functionality', 'Restore State').sigActivated.connect(restore)

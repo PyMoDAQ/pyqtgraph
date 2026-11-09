@@ -39,10 +39,10 @@ Public API
 ----------
 ``parameter_to_json(param, indent=None, filter=None)``       → ``str``
 ``parameter_from_json(json_str)``                            → ``Parameter``
-``parameter_restore_from_json(param, json_str)``
+``parameter_restore_from_json(param, json_str, *, addChildren=False, removeChildren=False)``
 ``parameter_to_json_file(param, path, *, overwrite=True, indent=2, encoding=None, filter=None)``
 ``parameter_from_json_file(path, encoding=None)``            → ``Parameter``
-``parameter_restore_from_json_file(param, path, encoding=None)``
+``parameter_restore_from_json_file(param, path, encoding=None, *, addChildren=False, removeChildren=False)``
 """
 from __future__ import annotations
 
@@ -129,7 +129,13 @@ def parameter_from_json(json_str: str) -> Parameter:
     return Parameter.create(**state)
 
 
-def parameter_restore_from_json(param: Parameter, json_str: str) -> None:
+def parameter_restore_from_json(
+    param: Parameter,
+    json_str: str,
+    *,
+    addChildren: bool = False,
+    removeChildren: bool = False,
+) -> None:
     """Restore parameter values from a JSON string into an *existing* tree.
 
     Uses :meth:`~pyqtgraph.parametertree.Parameter.restoreState` so that all
@@ -137,15 +143,27 @@ def parameter_restore_from_json(param: Parameter, json_str: str) -> None:
     for loading user settings saved with ``filter='user'``, but also works
     with full-structure JSON.
 
+    By default the structure of *param* is kept: a child missing from the JSON
+    keeps its current value instead of being removed, and an entry naming no
+    child of *param* is ignored instead of being added.  This lets a settings
+    file saved by an older or newer version of the tree be loaded safely.
+
     Parameters
     ----------
     param:
         The existing Parameter tree to update.
     json_str:
         A JSON string produced by :func:`parameter_to_json`.
+    addChildren:
+        Passed to ``restoreState()``: create the children found in the JSON but
+        not in *param*.  Only meaningful for full-structure JSON, since a
+        ``filter='user'`` entry has no ``type`` to create a child from.
+    removeChildren:
+        Passed to ``restoreState()``: remove the children of *param* that are
+        not in the JSON.
     """
     state = json.loads(json_str, object_hook=_decode_hook)
-    param.restoreState(state)
+    param.restoreState(state, addChildren=addChildren, removeChildren=removeChildren)
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +241,9 @@ def parameter_restore_from_json_file(
     param: Parameter,
     path: Union[str, Path],
     encoding: str | None = None,
+    *,
+    addChildren: bool = False,
+    removeChildren: bool = False,
 ) -> None:
     """Restore parameter values from a ``.json`` file into an *existing* tree.
 
@@ -239,7 +260,10 @@ def parameter_restore_from_json_file(
         Path to the ``.json`` file written by :func:`parameter_to_json_file`.
     encoding:
         Text encoding of the file.  Defaults to ``'utf-8'`` (RFC 8259).
+    addChildren, removeChildren:
+        See :func:`parameter_restore_from_json`.  Both default to ``False`` so
+        that the structure of *param* is kept.
     """
     text = Path(path).read_text(encoding=encoding or _JSON_ENCODING)
     state = json.loads(text, object_hook=_decode_hook)
-    param.restoreState(state)
+    param.restoreState(state, addChildren=addChildren, removeChildren=removeChildren)

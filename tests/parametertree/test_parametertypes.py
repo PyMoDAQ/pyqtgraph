@@ -458,6 +458,54 @@ def test_json_restore_from_file(example_params, tmp_path):
     assert fresh.child('Sample Float').child('widget').value() == pytest.approx(2.71)
 
 
+def _restore_tree():
+    return pt.Parameter.create(name='root', type='group', children=[
+        dict(name='a', type='float', value=0.0),
+        dict(name='grp', type='group', children=[
+            dict(name='b', type='int', value=0),
+            dict(name='c', type='int', value=0),
+        ]),
+    ])
+
+
+def test_json_restore_keeps_structure_by_default():
+    """A partial user file restores its values and leaves the rest of the tree alone."""
+    partial = _json.dumps({'children': {'grp': {'children': {'b': {'value': 5}}},
+                                        'unknown': {'value': 1}}})
+    p = _restore_tree()
+    parameter_restore_from_json(p, partial)
+    # restoreState moves the children found in the state first: compare names, not order
+    assert sorted(ch.name() for ch in p) == ['a', 'grp']
+    assert sorted(ch.name() for ch in p.child('grp')) == ['b', 'c']
+    assert p['grp', 'b'] == 5
+
+
+def test_json_restore_structure_on_request():
+    """addChildren / removeChildren are passed to restoreState."""
+    src = _restore_tree()
+    src.child('grp').addChild(dict(name='d', type='int', value=7))
+    full_json = parameter_to_json(src)
+
+    p = _restore_tree()
+    p.addChild(dict(name='extra', type='int', value=0))
+    parameter_restore_from_json(p, full_json, addChildren=True, removeChildren=True)
+    assert [ch.name() for ch in p] == ['a', 'grp']
+    assert [ch.name() for ch in p.child('grp')] == ['b', 'c', 'd']
+    assert p['grp', 'd'] == 7
+
+
+def test_json_restore_file_keeps_structure_by_default(tmp_path):
+    src = _restore_tree()
+    src['a'] = 1.5
+    src.child('grp').removeChild(src.child('grp', 'c'))  # a settings file saved by an older tree
+    parameter_to_json_file(src, tmp_path / 'settings', filter='user')
+
+    p = _restore_tree()
+    parameter_restore_from_json_file(p, tmp_path / 'settings.json')
+    assert p['a'] == 1.5
+    assert sorted(ch.name() for ch in p.child('grp')) == ['b', 'c']
+
+
 # --- overwrite guard ---------------------------------------------------------
 
 def test_json_file_no_overwrite(example_params, tmp_path):
