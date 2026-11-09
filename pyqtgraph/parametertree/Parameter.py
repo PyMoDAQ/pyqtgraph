@@ -2,7 +2,7 @@ import re
 import warnings
 import weakref
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from .. import functions as fn
 from ..Qt import QtCore
@@ -459,6 +459,64 @@ class Parameter(QtCore.QObject):
         for ch in self:
             vals[ch.name()] = (ch.value(), ch.getValues())
         return vals
+
+    def setValues(self, values, ignoreUnknown=False):
+        """Set the values of several children from a (possibly nested) dict.
+
+        Parameters
+        ----------
+        values : Mapping
+            Keys are names of children, or tuples giving the path to a sub-parameter
+            (as for ``param[('child', 'grandchild')] = value``). A value is either the
+            value to set, or, for a child that has children (a group), a dict handled
+            the same way relative to that child. A dict given to a child without
+            children is set as its value.
+        ignoreUnknown : bool, default False
+            If False, a key naming no child raises a ``KeyError`` that lists the valid
+            names. If True, such keys are skipped.
+
+        Notes
+        -----
+        The values are set in the order of ``values`` within a ``treeChangeBlocker``, so
+        ``sigTreeStateChanged`` is emitted once, after all the values are set.
+        ``sigValueChanged`` is still emitted by each child whose value changes.
+
+        Unlike ``restoreState``, only values are changed: no child is added or
+        removed and no other option (limits, visibility...) is touched.
+
+        Examples
+        --------
+        ::
+
+            params.setValues({
+                'gain': 2.5,
+                'acquisition': {'exposure': 0.01, 'binning': 2},
+                ('display', 'colormap'): 'viridis',
+            })
+        """
+        with self.treeChangeBlocker():
+            self._setValues(values, ignoreUnknown)
+
+    def _setValues(self, values, ignoreUnknown):
+        for key, value in values.items():
+            path = key if isinstance(key, tuple) else (key,)
+            child = self
+            for name in path:
+                if name not in child.names:
+                    if ignoreUnknown:
+                        child = None
+                        break
+                    raise KeyError(
+                        f"Parameter {child.name()} has no child named {name!r} (key {key!r}); "
+                        f"valid names are: {list(child.names)}"
+                    )
+                child = child.names[name]
+            if child is None:
+                continue
+            if isinstance(value, Mapping) and (child.hasChildren() or child.type() == 'group'):
+                child._setValues(value, ignoreUnknown)
+            else:
+                child.setValue(value)
     
     def saveState(self, filter=None):
         """

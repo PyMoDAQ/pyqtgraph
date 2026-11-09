@@ -957,3 +957,71 @@ def test_setValue_blockSignal_callable_is_deprecated_but_still_works():
     p.setValue(2.0)
     assert blocked_received == [2.0]
     assert other_received == [1.0, 2.0]
+
+
+def _set_values_tree():
+    return Parameter.create(name='params', type='group', children=[
+        dict(name='a', type='float', value=0.),
+        dict(name='grp', type='group', children=[
+            dict(name='b', type='int', value=0),
+            dict(name='sub', type='group', children=[dict(name='c', type='str', value='')]),
+        ]),
+        dict(name='with_children', type='float', value=0., children=[dict(name='d', type='int', value=0)]),
+        dict(name='lst', type='list', limits={'one': {'x': 1}, 'two': {'x': 2}}),
+    ])
+
+
+def test_setValues_nested_dict_and_paths():
+    p = _set_values_tree()
+    p.setValues({'a': 1.5, 'grp': {'b': 3, 'sub': {'c': 'hello'}}, ('grp', 'sub', 'c'): 'path'})
+    assert p['a'] == 1.5
+    assert p['grp', 'b'] == 3
+    assert p['grp', 'sub', 'c'] == 'path'
+    p.child('grp').setValues({('sub', 'c'): 'relative'})
+    assert p['grp', 'sub', 'c'] == 'relative'
+
+
+def test_setValues_parameter_with_value_and_children():
+    p = _set_values_tree()
+    # a non-dict value sets the parameter itself, a dict sets its children
+    p.setValues({'with_children': 2.})
+    p.setValues({'with_children': {'d': 4}})
+    assert p['with_children'] == 2.
+    assert p['with_children', 'd'] == 4
+
+
+def test_setValues_dict_value_of_a_leaf_is_set_as_is():
+    p = _set_values_tree()
+    p.setValues({'lst': {'x': 2}})
+    assert p['lst'] == {'x': 2}
+
+
+def test_setValues_does_not_change_structure_or_options():
+    p = _set_values_tree()
+    names = [ch.name() for ch in p]
+    limits = p.child('lst').opts['limits']
+    p.setValues({'grp': {'b': 1}})
+    assert [ch.name() for ch in p] == names
+    assert [ch.name() for ch in p.child('grp')] == ['b', 'sub']
+    assert p.child('lst').opts['limits'] == limits
+
+
+@pytest.mark.parametrize('values, missing', [({'nope': 1}, 'nope'),
+                                             ({'grp': {'nope': 1}}, 'nope'),
+                                             ({('grp', 'sub', 'nope'): 1}, 'nope')])
+def test_setValues_unknown_name(values, missing):
+    p = _set_values_tree()
+    with pytest.raises(KeyError, match=missing) as excinfo:
+        p.setValues(values)
+    assert 'valid names' in str(excinfo.value)
+    p.setValues({**values, 'a': 2.}, ignoreUnknown=True)
+    assert p['a'] == 2.
+
+
+def test_setValues_emits_one_tree_change():
+    p = _set_values_tree()
+    emitted = []
+    p.sigTreeStateChanged.connect(lambda param, changes: emitted.append(changes))
+    p.setValues({'a': 1., 'grp': {'b': 2, 'sub': {'c': 'x'}}})
+    assert len(emitted) == 1
+    assert {(ch[0].name(), ch[1]) for ch in emitted[0]} == {('a', 'value'), ('b', 'value'), ('c', 'value')}
